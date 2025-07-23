@@ -19,7 +19,7 @@ def read_xyz(file_path):
     Rn it read the line 16 of xyz as it sores the info about the QM9 ligand.
     It needs to be fixed for new uses. 
     '''
-    identifier=lines[1]
+    identifier=int(lines[1])
     return(np.array(block_data),elements,atom_number, identifier)
 
 def translate_pad_elements(elements, max_atom_number, element_dictionary):
@@ -41,6 +41,13 @@ def get_compound_data(Energy_file, xyz_location):
     normalised_energies=(energy_data-np.mean(energy_data))/np.std(energy_data)
     energy_mean=np.mean(energy_data)
     energy_std=np.std(energy_data)
+    
+    for ligand in full_ligands:
+        c,e,a,i=read_xyz("{}/{}.xyz".format(xyz_location,ligand))
+        full_coordinates.append(c)
+        full_atom_numbers.append(a)
+        full_elements.append(e)
+        full_identifiers.append(i)
     
     all_elements=list(set([x for xs in full_elements for x in xs]))
     element_dictionary={"placeholder":0}

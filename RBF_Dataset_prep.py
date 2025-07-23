@@ -54,9 +54,9 @@ def distances_to_filters(distances, atom_number, filter_number):
 
 if __name__=="__main__":
     seed=42
-    Energy_file="./Dy_prediction/relaxed_Kramer_Energies.txt"
-    xyz_location="./Dy_prediction/xyz_files_relaxed/"
-    filter_location="./Dy_Relaxed_Block_Data_Small/"
+    Energy_file="/home/lion/Documents/GNN_Clean/Data/raw_data/relaxed_Kramer_Energies.txt"
+    xyz_location="/home/lion/Documents/GNN_Clean/Data/raw_data/xyz_files_relaxed/"
+    filter_location="/home/lion/Documents/GNN_Clean/Data/Dy_Relaxed_Block_Data_Small/"
     
     filter_numbers=[64]
     test_number=2000
@@ -68,7 +68,7 @@ if __name__=="__main__":
         os.mkdir(filter_location)
     
     full_ligands, full_coordinates, full_atom_numbers, full_elements, full_identifiers, element_dictionary, normalised_energies, energy_mean, energy_std=GNN.get_compound_data(Energy_file, xyz_location)
-    
+    print(element_dictionary)
     compound_number=len(full_ligands)
     max_atom_number=np.max(full_atom_numbers)
     
@@ -114,11 +114,11 @@ if __name__=="__main__":
         np.savetxt("{}/Train_Block_{}_atom_numbers.txt".format(filter_location,counter),block_atom_numbers, fmt="%i")
         np.savetxt("{}/Train_Block_{}_identifiers.txt".format(filter_location,counter),block_identifiers, fmt="%i")
         np.save("{}/Train_Block_{}_elements.npy".format(filter_location,counter),block_translated_elements)
-        distances_Dy = np.array([distances_padding(block_coordinates[i], block_atom_numbers[i], block_atom_numbers[-1]) for i in range(len(block))]).reshape(len(block),-1)
+        """distances_Dy = np.array([distances_padding(block_coordinates[i], block_atom_numbers[i], block_atom_numbers[-1]) for i in range(len(block))]).reshape(len(block),-1)
         for filter_number in filter_numbers:
             filters_Dy = distances_to_filters(distances_Dy, block_atom_numbers[-1], filter_number)
             np.save("{}/Train_Block_{}_Filters_number_{}.npy".format(filter_location,counter, filter_number),filters_Dy)
-            print("done filters {} size {}".format(counter, filters_Dy.shape))
+            print("done filters {} size {}".format(counter, filters_Dy.shape))"""
     
     starts=list(range(0,test_number,test_block_size))
     ends=list(range(test_block_size,test_number,test_block_size))
@@ -139,8 +139,8 @@ if __name__=="__main__":
         np.savetxt("{}/Test_Block_{}_atom_numbers.txt".format(filter_location,counter),block_atom_numbers, fmt="%i")
         np.savetxt("{}/Test_Block_{}_identifiers.txt".format(filter_location,counter),block_identifiers, fmt="%i")
         np.save("{}/Test_Block_{}_elements.npy".format(filter_location,counter),block_translated_elements)
-        distances_Dy = np.array([distances_padding(block_coordinates[i], block_atom_numbers[i], block_atom_numbers[-1]) for i in range(len(block))]).reshape(len(block),-1)
+        """distances_Dy = np.array([distances_padding(block_coordinates[i], block_atom_numbers[i], block_atom_numbers[-1]) for i in range(len(block))]).reshape(len(block),-1)
         for filter_number in filter_numbers:
             filters_Dy = distances_to_filters(distances_Dy, block_atom_numbers[-1], filter_number)
             np.save("{}/Test_Block_{}_Filters_number_{}.npy".format(filter_location,counter, filter_number),filters_Dy)
-            print("done filters {} size {}".format(counter, filters_Dy.shape))
+            print("done filters {} size {}".format(counter, filters_Dy.shape))"""

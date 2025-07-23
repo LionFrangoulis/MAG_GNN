@@ -256,7 +256,7 @@ if __name__=="__main__":
     #FOLDERS/Files:
     xyz_folder="/home/lion/Documents/GNN_Clean/Data/raw_data/xyz_files_relaxed/"
     Energy_File="/home/lion/Documents/GNN_Clean/Data/raw_data/relaxed_Kramer_Energies.txt"
-    data_block_location="/home/lion/Documents/GNN_Clean/Data/Dy_Relaxed_Block_Data/"
+    data_block_location="/home/lion/Documents/GNN_Clean/Data/Dy_Relaxed_Block_Data_Small/"
     output_folder_dir = '/home/lion/Documents/GNN_Clean/Results/'
     
     assert os.path.isdir(output_folder_dir)
@@ -265,26 +265,7 @@ if __name__=="__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(device)
 
-    
-    full_elements=[]
-    full_atom_numbers=[]
-    full_coordinates=[]
-    full_identifiers=[]
-    
-    with open(Energy_File,"r") as f:
-        lines=f.readlines()
-    files=[line.split()[0] for line in lines]
-    energy_data=np.array([float(line.split()[1]) for line in lines])
-    mean=np.mean(energy_data)
-    std=np.std(energy_data)
-    
-    for file in files:
-        c,e,a,i=GNN.read_xyz("{}/{}.xyz".format(xyz_folder,file))
-        full_coordinates.append(c)
-        full_atom_numbers.append(a)
-        full_elements.append(e)
-        full_identifiers.append(i)
-    all_elements=list(set([x for xs in full_elements for x in xs])) 
+    full_ligands, full_coordinates, full_atom_numbers, full_elements, full_identifiers, element_dictionary, normalised_energies, mean, std=GNN.get_compound_data(Energy_File, xyz_folder)
     
     
     
@@ -296,7 +277,7 @@ if __name__=="__main__":
     
     #Dataset parameters
     
-    element_number=len(all_elements)+1 # +1 is for the dummy or ghost atoms  
+    element_number=len(element_dictionary.keys()) # +1 is for the dummy or ghost atoms  
     run=0#Modifiable
     block_number=16#Modifiable  
     
