@@ -18,7 +18,7 @@ class SchNet(nn.Module):
         #self.ssp=SSP()
         self.ssp=torch.nn.ELU() 
         self.final_layer=AtomWise(int(self.feature_number/2), output_feature_number=1) # the 2nd atom_wise layer of the main arch
-    def forward(self,elements,filters, atom_number):
+    def forward(self,elements,filters, atom_number, mask=None):
         #Input dimensions elements: (N*A) scalar then?! 
         #Input dimensions filters: (N,A,A,R)
         
@@ -32,9 +32,13 @@ class SchNet(nn.Module):
         x=self.ssp(x)
         x=self.final_layer(x, atom_number)
         x=torch.reshape(x,(-1,atom_number))
-        
+        if not mask==None:
+            x=x*mask
         if self.pooling=="mean":
-            x=torch.sum(x,-1)/atom_number # evaluating a mean value over the nomber of atoms 
+            if not mask==None:
+                x=torch.div(torch.sum(x,-1),torch.sum(mask,-1))
+            else:
+                x=torch.sum(x,-1)/atom_number # evaluating a mean value over the nomber of atoms in the mask
         elif self.pooling=="sum":
             x=torch.sum(x,-1) # evaluating a mean value over the nomber of atoms 
         elif self.pooling=="first":

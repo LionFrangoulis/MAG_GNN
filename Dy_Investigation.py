@@ -26,10 +26,11 @@ def analyse_model(size, run, model,train_loader, test_loader, save_on_disc=False
     with torch.no_grad():  # Disable gradient calculation for testing
         for batch_data in train_loader:
             x_train_batch, elements_train, y_train_batch, identifiers_train_batch, ligands, train_atom_numbers = batch_data
+            mask=torch.tensor([[1]*atom_number+[0]*(train_atom_numbers[-1]-atom_number) for atom_number in train_atom_numbers]).to(device)
             identifiers_train=np.concatenate([identifiers_train,identifiers_train_batch])
             x_train_batch=x_train_batch.to(device)
             y_train_batch=y_train_batch.to(device)
-            y_pred_train_batch = model(elements_train,x_train_batch, train_atom_numbers[-1])
+            y_pred_train_batch = model(elements_train,x_train_batch, train_atom_numbers[-1], mask)
             y_train=torch.cat([y_train, y_train_batch])
             y_pred_train=torch.cat([y_pred_train, y_pred_train_batch])
     
@@ -43,10 +44,11 @@ def analyse_model(size, run, model,train_loader, test_loader, save_on_disc=False
     with torch.no_grad():  # Disable gradient calculation for testing
         for batch_data in test_loader:
             x_test_batch, elements_test, y_test_batch, identifiers_test_batch, ligands, test_atom_numbers = batch_data
+            mask=torch.tensor([[1]*atom_number+[0]*(test_atom_numbers[-1]-atom_number) for atom_number in test_atom_numbers]).to(device)
             identifiers_test=np.concatenate([identifiers_test,identifiers_test_batch])
             x_test_batch=x_test_batch.to(device)
             y_test_batch=y_test_batch.to(device)
-            y_pred_test_batch = model(elements_test,x_test_batch, test_atom_numbers[-1])
+            y_pred_test_batch = model(elements_test,x_test_batch, test_atom_numbers[-1], mask)
             y_test=torch.cat([y_test, y_test_batch])
             y_pred_test=torch.cat([y_pred_test, y_pred_test_batch])
             
@@ -174,7 +176,7 @@ def plot_loss_growth(history, filename=None):
         plt.savefig(filename, dpi=300)
         plt.close()
 
-def train_SchNet(feature_number, element_number, filter_number, layer_number, epochs, train_loader, test_loader, start_learning_rate,pooling, factor=0.5, patience=5, threshold=1e-4, min_lr=1e-6):
+def train_SchNet(feature_number, element_number, filter_number, layer_number, epochs, train_loader, test_loader, start_learning_rate,pooling, factor=0.5, patience=3, threshold=1e-4, min_lr=1e-6):
     history = []
     
     model = GNN.SchNet(feature_number,element_number,filter_number, layer_number,pooling,ghost_killer=True).to(device)
@@ -196,10 +198,12 @@ def train_SchNet(feature_number, element_number, filter_number, layer_number, ep
         total_samples = 0
         losses=[]
         for batch_data in train_loader:
-            x_train, elements_train, y_train, identifiers, ligands, atom_numbers = batch_data 
+            x_train, elements_train, y_train, identifiers, ligands, atom_numbers = batch_data
+            mask=torch.tensor([[1]*atom_number+[0]*(atom_numbers[-1]-atom_number) for atom_number in atom_numbers]).to(device)
+            #mask=None
             x_train=x_train.to(device)
             y_train=y_train.to(device)
-            y_pred = model(elements_train,x_train,atom_numbers[-1])
+            y_pred = model(elements_train,x_train,atom_numbers[-1], mask)
             loss = dnn_loss(y_pred, y_train.view(-1))
             optimizer.zero_grad() 
             loss.backward()
@@ -220,10 +224,12 @@ def train_SchNet(feature_number, element_number, filter_number, layer_number, ep
                 # x_val the RBF filters (N,F)
                 # elements_val the elements in each mol (N,A)
                 # atoms_no the original no of atoms in each mol (N)
-
+                
                 x_val=x_val.to(device)
                 y_val=y_val.to(device)
-                yval_pred = model(elements_val,x_val,atom_numbers[-1]) # the last one has the largest size 
+                mask=torch.tensor([[1]*atom_number+[0]*(atom_numbers[-1]-atom_number) for atom_number in atom_numbers]).to(device)
+                #mask=None
+                yval_pred = model(elements_val,x_val,atom_numbers[-1], mask) # the last one has the largest size 
                 loss = dnn_loss(yval_pred, y_val.view(-1))
                 val_losses.append(loss)
                 val_loss += loss.detach().item() * x_val.size(0)
@@ -256,7 +262,7 @@ if __name__=="__main__":
     #FOLDERS/Files:
     xyz_folder="/home/lion/Documents/GNN_Clean/Data/raw_data/xyz_files_relaxed/"
     Energy_File="/home/lion/Documents/GNN_Clean/Data/raw_data/relaxed_Kramer_Energies.txt"
-    data_block_location="/home/lion/Documents/GNN_Clean/Data/Dy_Relaxed_Block_Data_Small/"
+    data_block_location="/home/lion/Documents/GNN_Clean/Data/Dy_Relaxed_Block_Data_Cutoff_12/"
     output_folder_dir = '/home/lion/Documents/GNN_Clean/Results/'
     
     assert os.path.isdir(output_folder_dir)
@@ -267,37 +273,25 @@ if __name__=="__main__":
 
     full_ligands, full_coordinates, full_atom_numbers, full_elements, full_identifiers, element_dictionary, normalised_energies, mean, std=GNN.get_compound_data(Energy_File, xyz_folder)
     
-    
-    
-    filter_number=64
-    
-    
-
-    
-    
     #Dataset parameters
-    
+    filter_number=128
     element_number=len(element_dictionary.keys()) # +1 is for the dummy or ghost atoms  
     run=0#Modifiable
     block_number=16#Modifiable  
     
     
     #Training parameters:
-    feature_number=8#Modifiable
-    layer_number=1#Modifiable
-    LR=0.001
-    epochs=3
-    
-    
-    
+    feature_number=32#Modifiable
+    layer_number=2#Modifiable
+    LR=0.0025
+    epochs=75
     
     train_loader = load_train_dataset(range(block_number),filter_number, data_block_location)
     test_loader = load_test_dataset(range(8),filter_number, data_block_location)
     
     
-    history, model=train_SchNet(feature_number, element_number, filter_number, layer_number, epochs, train_loader, test_loader, LR,"first")
-    
-    
+    history, model=train_SchNet(feature_number, element_number, filter_number, layer_number, epochs, train_loader, test_loader, LR,"mean")
+
     np.savetxt(output_folder_dir+"history_layer_number_{}_feature_number_{}_block_number_{}_run_{}.txt".format(layer_number, 
                                                                                                                   feature_number,
                                                                                                                   block_number,
@@ -308,4 +302,6 @@ if __name__=="__main__":
                                                                                                                                          run))
     plot_loss_growth(history)
     analyse_model(16,0,model,train_loader, test_loader)
+    del(train_loader)
+    del(test_loader)
     print("DONE")
