@@ -1,31 +1,34 @@
 import torch
 import torch.nn as nn
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-class SchNet(nn.Module):
-    def __init__(self, feature_number, element_number, filter_number, layer_number, pooling, ghost_killer=True):
-        super(SchNet, self).__init__()
+class SchNet_Atomic_Angles(nn.Module):
+    def __init__(self, feature_number, element_number, rbf_number, sbf_number, layer_number, pooling, ghost_killer=True):
+        super(SchNet_Atomic_Angles, self).__init__()
         self.ghost_killer=ghost_killer
         self.pooling=pooling # type of pooling at the end, support "sum", "first" or "mean"
-        self.filter_number=filter_number # the dim of filter for mapping the distances
+        self.rbf_number=rbf_number # the dim of filter for mapping the distances
+        self.sbf_number=sbf_number
         self.element_number=element_number # 
         self.feature_number=feature_number # the dim of atom embedding 
         self.layer_number=layer_number # the no of interaction layer
         self.encoding=Encoding(self.feature_number,self.element_number, ghost_killer) # initiation of the atoms' embedding 
         # passing the embedded atoms to interaction block for layer_number times 
-        self.interaction_layers=nn.ModuleList([interaction(self.feature_number, self.filter_number, ghost_killer) for i in range(self.layer_number)]) 
+        self.interaction_layers=nn.ModuleList([interaction(self.feature_number, self.rbf_number, sbf_number, ghost_killer) for i in range(self.layer_number)]) 
         self.second_last_layer=AtomWise(self.feature_number,output_feature_number=int(self.feature_number/2)) # the first atom_wise layer in main arch 
         #self.ssp=SSP()
         self.ssp=torch.nn.ELU() 
         self.final_layer=AtomWise(int(self.feature_number/2), output_feature_number=1) # the 2nd atom_wise layer of the main arch
-    def forward(self,elements,filters, atom_number, mask=None):
+    def forward(self,elements,rbf, sbf, atom_number, mask=None):
         #Input dimensions elements: (N*A) scalar then?! 
-        #Input dimensions filters: (N,A,A,R)
+        #Input dimensions rbf: (N,A,A,R)
+        #Input dimension sbf: (N,A,A,L)
+        
         x=self.encoding(elements) # output dim: (N*A,F)
-        
+        sbf=torch.reshape(sbf,[-1,atom_number, self.sbf_number])
         for i in range(self.layer_number):
-            x=self.interaction_layers[i](x, filters, atom_number) # ATOM_NUMBER IS REDUNDANT
-        
+            x=self.interaction_layers[i](x, rbf, sbf, atom_number) # ATOM_NUMBER IS REDUNDANT
         x=self.second_last_layer(x, atom_number) 
         
         x=self.ssp(x)
@@ -61,14 +64,14 @@ class Encoding(nn.Module):
             self.encodings.requires_grad = True      
         else:
             lists=[[i]*self.feature_number for i in range(element_number)]
-            self.encodings=torch.tensor(lists,dtype=torch.float32)
+            self.encodings=torch.tensor(lists,dtype=torch.float32).to(device)
     def forward(self,element_list):
         #incoming dimensions: (N,A)
         element_list=element_list.reshape(-1)
         if not self.ghost_killer:
             vectors=[self.encodings[element] for element in element_list]
         else:
-            vectors=[self.encodings[element] if not element==0 else torch.tensor([0]*self.feature_number) for element in element_list]
+            vectors=[self.encodings[element] if not element==0 else torch.tensor([0]*self.feature_number).to(device) for element in element_list]
         result=torch.reshape(torch.stack(vectors),(-1,self.feature_number)) 
         #Outgoing dimensions: (N*A,F)
         return result
@@ -101,24 +104,33 @@ class cfconv(nn.Module):
     '''
     The code block's responsible for updating the atom embeddings using coordinates and distances through filters.  
     '''
-    def __init__(self, feature_number, filter_number,ghost_killer):
+    def __init__(self, feature_number,rbf_number,ghost_killer):
         super(cfconv, self).__init__()
-        self.filter_number=filter_number
+        self.rbf_number=rbf_number
         self.feature_number=feature_number
-        if ghost_killer:
-            self.layer_1=nn.Linear(self.filter_number,self.feature_number, bias=False)
+        """if ghost_killer:
+            self.distance_layer_1=nn.Linear(self.rbf_number,self.feature_number, bias=False)
         else:
-            self.layer_1=nn.Linear(self.filter_number,self.feature_number)
+            self.distance_layer_1=nn.Linear(self.rbf_number,self.feature_number)
+        if ghost_killer:
+            self.angle_layer_1=nn.Linear(self.rbf_number,self.feature_number, bias=False)
+        else:
+            self.angle_layer_1=nn.Linear(self.rbf_number,self.feature_number)"""
+        self.filter_layer_1=nn.Linear(self.rbf_number,self.feature_number, bias=not ghost_killer)
+        self.filter_layer_2=nn.Linear(self.feature_number,self.feature_number, bias=not ghost_killer)
         #self.ssp=SSP()
         self.ssp=torch.nn.ELU()
         #self.layer_2=nn.Linear(self.feature_number,self.feature_number)
          
-    def forward(self,x,filter_inputs, atom_number):
+    def forward(self,x,rbf,atom_number):
         #Input dimension x: (N*A,F)
-        #Input dimension filter_inputs: (N,A,A,R)
+        #Input dimension rbf: (N,A,A,R)
+        #Input dimension sbf: (N,A,A,L)
         x=torch.reshape(x,(-1,atom_number, self.feature_number)) # dim: (N,A,F)
-        filter_inputs=torch.reshape(filter_inputs,(-1,self.filter_number))
-        y=self.layer_1(filter_inputs) # dim: (N,A,A,F)
+        filter_inputs=torch.reshape(rbf,(-1,self.rbf_number))
+        y=self.filter_layer_1(filter_inputs) # dim: (N,A,A,F)
+        y=self.ssp(y)
+        y=self.filter_layer_2(y) # dim: (N,A,A,F)
         y=self.ssp(y)
         filters=torch.reshape(y,(-1,atom_number, atom_number, self.feature_number)) # dim: (N,A,A,F)
         product=x.unsqueeze(2)*filters # (N,A,1,F)*(N,A,A,F) element_wise multiplication -> output dim (N,A,A,F)
@@ -130,22 +142,30 @@ class interaction(nn.Module):
     '''
     Interaction block further updates the embeddings using cfconv and multiple atom_wise layers.
     '''
-    def __init__(self,feature_number, filter_number,ghost_killer):
+    def __init__(self,feature_number, rbf_number,sbf_number,ghost_killer):
         super(interaction, self).__init__()
-        self.filter_number=filter_number
+        self.rbf_number=rbf_number
+        self.sbf_number=sbf_number
         self.feature_number=feature_number
         self.atomwise1=AtomWise(self.feature_number)
-        self.atomwise2=AtomWise(self.feature_number)
+        self.atomwise2=AtomWise(2*self.feature_number, output_feature_number=self.feature_number)
         self.atomwise3=AtomWise(self.feature_number)
-        self.cfconv1=cfconv(self.feature_number, self.filter_number,ghost_killer)
+        self.sbf_layer_1=AtomWise(self.sbf_number, output_feature_number=self.feature_number)
+        self.sbf_layer_2=AtomWise(self.feature_number)
+        self.cfconv1=cfconv(self.feature_number, self.rbf_number,ghost_killer)
         #self.ssp=SSP()
         self.ssp=torch.nn.ELU()
 
-    def forward(self, x, filter_inputs, atom_number):
+    def forward(self, x, rbf, sbf, atom_number):
         #Input dimension x: (N*A,F)
-        #Input dimension filter_inputs: (N,A,A,R)
-        v=self.atomwise1(x,atom_number) # NO OF ATOMS IS A REDUNDANT PARAM!
-        v=self.cfconv1(v,filter_inputs,atom_number)  # NO OF ATOMS IS ONLY FOR FIXING THE DIM OF MATRICES. 
+        #Input dimension rbf: (N,A,A,R)
+        #Input dimension sbf: (N,A,A,A,L)
+        v1=self.atomwise1(x,atom_number) # NO OF ATOMS IS A REDUNDANT PARAM!
+        v1=self.cfconv1(v1,rbf,atom_number)  # NO OF ATOMS IS ONLY FOR FIXING THE DIM OF MATRICES. 
+        v2=self.sbf_layer_1(sbf,atom_number)
+        v2=self.ssp(v2)
+        v2=self.sbf_layer_2(v2,atom_number).reshape(-1,self.feature_number)
+        v=torch.cat([v1,v2],-1)
         v=self.atomwise2(v,atom_number)
         v=self.ssp(v)
         v=self.atomwise3(v,atom_number)
